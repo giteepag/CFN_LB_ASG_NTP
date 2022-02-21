@@ -1,0 +1,84 @@
+Parameters:
+  VpcBlock:
+    Type: AWS::EC2::VPC::Id
+  Subnet01Block:
+    Type: AWS::EC2::Subnet::Id
+  MyAvailabilityZone:
+    Type: String
+    Default: us-east-1a
+    AllowedValues:
+      - us-east-1a
+      - us-east-1b
+  MyKeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+  InstanceType:
+    Default: 't2.micro'
+    Type: String
+
+Resources:
+  myLoadBalancer:
+      Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+      Properties:
+        Name: ntp-loadbalancer
+        Subnets:
+          - !Ref Subnet01Block
+        Scheme: internal
+        Type: network
+
+#Specify the listener to Network Load Balancer.
+  NTPlistener:
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    Properties:
+      DefaultActions:
+        - Type: forward
+          ForwardConfig: 
+            TargetGroups:
+              - TargetGroupArn: !Ref TargetGroup1
+      LoadBalancerArn: !Ref myLoadBalancer
+      Protocol: "UDP"
+      Port: 123
+
+  TargetGroup1:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPort: 22
+      HealthCheckProtocol: TCP
+      Name: ntp-test-instance-group
+      TargetType: instance
+      Protocol: "UDP"
+      Port: 123
+      VpcId: !Ref VpcBlock
+
+  AsgLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub ${AWS::StackName}-launch-template
+      LaunchTemplateData:
+        CreditSpecification:
+          CpuCredits: Unlimited
+        ImageId: ami-033b95fb8079dc481
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref MyKeyName
+        NetworkInterfaces: 
+          - SubnetId: !Ref Subnet01Block
+            DeviceIndex: 0
+            Groups: 
+              - sg-05822eb72cd9a0540
+  
+  ApplicationAsg:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: ASG-NTP
+      MinSize: '1'
+      MaxSize: '2'
+      DesiredCapacity: '2'
+      HealthCheckGracePeriod: 300
+      LaunchTemplate:
+        LaunchTemplateId: !Ref AsgLaunchTemplate
+        Version: !GetAtt AsgLaunchTemplate.LatestVersionNumber
+      VPCZoneIdentifier:
+        - !Ref Subnet01Block
+      TargetGroupARNs:
+          - !Ref TargetGroup1
